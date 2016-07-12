@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="Source to the Rust file `src/lib.rs`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang">
+
+    <title>lib.rs.html -- source</title>
+
+    <link rel="stylesheet" type="text/css" href="../../../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../../../main.css">
+    
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        
+        
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content source"><pre class="line-numbers"><span id="1"> 1</span>
+<span id="2"> 2</span>
+<span id="3"> 3</span>
+<span id="4"> 4</span>
+<span id="5"> 5</span>
+<span id="6"> 6</span>
+<span id="7"> 7</span>
+<span id="8"> 8</span>
+<span id="9"> 9</span>
+<span id="10">10</span>
+<span id="11">11</span>
+<span id="12">12</span>
+<span id="13">13</span>
+<span id="14">14</span>
+<span id="15">15</span>
+<span id="16">16</span>
+<span id="17">17</span>
+<span id="18">18</span>
+<span id="19">19</span>
+<span id="20">20</span>
+<span id="21">21</span>
+<span id="22">22</span>
+<span id="23">23</span>
+<span id="24">24</span>
+<span id="25">25</span>
+<span id="26">26</span>
+<span id="27">27</span>
+<span id="28">28</span>
+<span id="29">29</span>
+<span id="30">30</span>
+<span id="31">31</span>
+</pre><pre class='rust '>
+<span class='doccomment'>//! redlock-rs is an implementation of the [distributed locking</span>
+<span class='doccomment'>//! mechanism](http://redis.io/topics/distlock) built on top of Redis.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! It is more or less a port of the [Ruby version](https://github.com/antirez/redlock-rb).</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! # Basic Operation</span>
+<span class='doccomment'>//! ```rust,no_run</span>
+<span class='doccomment'>//! # use redlock::RedLock;</span>
+<span class='doccomment'>//! let rl = RedLock::new(vec![</span>
+<span class='doccomment'>//!     &quot;redis://127.0.0.1:6380/&quot;,</span>
+<span class='doccomment'>//!     &quot;redis://127.0.0.1:6381/&quot;,</span>
+<span class='doccomment'>//!     &quot;redis://127.0.0.1:6382/&quot;]);</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! let lock;</span>
+<span class='doccomment'>//! loop {</span>
+<span class='doccomment'>//!   match rl.lock(&quot;mutex&quot;.as_bytes(), 1000) {</span>
+<span class='doccomment'>//!     Some(l) =&gt; { lock = l; break }</span>
+<span class='doccomment'>//!     None =&gt; ()</span>
+<span class='doccomment'>//!   }</span>
+<span class='doccomment'>//! }</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! // Critical section</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! rl.unlock(&amp;lock);</span>
+<span class='doccomment'>//! ```</span>
+
+<span class='kw'>extern</span> <span class='kw'>crate</span> <span class='ident'>redis</span>;
+<span class='kw'>extern</span> <span class='kw'>crate</span> <span class='ident'>rand</span>;
+
+<span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>redlock</span>::{<span class='ident'>RedLock</span>, <span class='ident'>Lock</span>};
+<span class='kw'>mod</span> <span class='ident'>redlock</span>;
+</pre>
+</section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../../../";
+        window.currentCrate = "redlock";
+        window.playgroundUrl = "";
+    </script>
+    <script src="../../../jquery.js"></script>
+    <script src="../../../main.js"></script>
+    
+    <script defer src="../../../search-index.js"></script>
+</body>
+</html>
