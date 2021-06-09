@@ -181,8 +181,7 @@ impl RedLock {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
+    use anyhow::Result;
     use once_cell::sync::Lazy;
     use once_cell::unsync::Lazy as UnsyncLazy;
     use testcontainers::clients::Cli;
@@ -191,7 +190,7 @@ mod tests {
 
     use super::*;
 
-    static DOCKER: Lazy<Cli> = Lazy::new(|| Cli::default());
+    static DOCKER: Lazy<Cli> = Lazy::new(Cli::default);
     // Actual containers are not thread-safe, but they don't have to be
     thread_local! {
         static CONTAINERS: UnsyncLazy<Vec<Container<'static, Redis>>> = UnsyncLazy::new(|| {
@@ -201,92 +200,91 @@ mod tests {
         })
     }
 
-    static ADDRESSES: Lazy<Vec<String>> = Lazy::new(|| {
-        CONTAINERS.with(|containers| {
+    static ADDRESSES: Lazy<Vec<String>> = Lazy::new(|| match std::env::var("ADDRESSES") {
+        Ok(addresses) => addresses.split(',').map(String::from).collect(),
+        Err(_) => CONTAINERS.with(|containers| {
             containers
                 .iter()
-                .map(|c| {
-                    if Path::new(".dockerenv").exists() {
-                        format!("redis://{}:6379", c.get_bridge_ip_address().to_string())
-                    } else {
-                        format!("redis://localhost:{}", c.get_host_port(6379))
-                    }
-                })
+                .map(|c| format!("redis://localhost:{}", c.get_host_port(6379)))
                 .collect()
-        })
+        }),
     });
 
     #[test]
-    fn test_redlock_get_unique_id() {
+    fn test_redlock_get_unique_id() -> Result<()> {
         let rl = RedLock::new(Vec::<String>::new());
-
-        match rl.get_unique_lock_id() {
-            Ok(id) => {
-                assert_eq!(20, id.len());
-            }
-            err => panic!("Error thrown: {:?}", err),
-        }
+        assert_eq!(rl.get_unique_lock_id()?.len(), 20);
+        Ok(())
     }
 
     #[test]
-    fn test_redlock_get_unique_id_uniqueness() {
+    fn test_redlock_get_unique_id_uniqueness() -> Result<()> {
         let rl = RedLock::new(Vec::<String>::new());
 
-        let id1 = rl.get_unique_lock_id().unwrap();
-        let id2 = rl.get_unique_lock_id().unwrap();
+        let id1 = rl.get_unique_lock_id()?;
+        let id2 = rl.get_unique_lock_id()?;
 
         assert_eq!(20, id1.len());
         assert_eq!(20, id2.len());
-        assert!(id1 != id2);
+        assert_ne!(id1, id2);
+        Ok(())
     }
 
     #[test]
     fn test_redlock_valid_instance() {
+        println!("{}", ADDRESSES.join(","));
         let rl = RedLock::new(ADDRESSES.clone());
         assert_eq!(3, rl.servers.len());
         assert_eq!(2, rl.quorum);
     }
 
     #[test]
-    fn test_redlock_direct_unlock_fails() {
+    fn test_redlock_direct_unlock_fails() -> Result<()> {
+        println!("{}", ADDRESSES.join(","));
         let rl = RedLock::new(ADDRESSES.clone());
-        let key = rl.get_unique_lock_id().unwrap();
+        let key = rl.get_unique_lock_id()?;
 
-        let val = rl.get_unique_lock_id().unwrap();
-        assert_eq!(false, rl.unlock_instance(&rl.servers[0], &key, &val))
+        let val = rl.get_unique_lock_id()?;
+        assert!(!rl.unlock_instance(&rl.servers[0], &key, &val));
+        Ok(())
     }
 
     #[test]
-    fn test_redlock_direct_unlock_succeeds() {
+    fn test_redlock_direct_unlock_succeeds() -> Result<()> {
+        println!("{}", ADDRESSES.join(","));
         let rl = RedLock::new(ADDRESSES.clone());
-        let key = rl.get_unique_lock_id().unwrap();
+        let key = rl.get_unique_lock_id()?;
 
-        let val = rl.get_unique_lock_id().unwrap();
-        let mut con = rl.servers[0].get_connection().unwrap();
+        let val = rl.get_unique_lock_id()?;
+        let mut con = rl.servers[0].get_connection()?;
         redis::cmd("SET").arg(&*key).arg(&*val).execute(&mut con);
 
-        assert_eq!(true, rl.unlock_instance(&rl.servers[0], &key, &val))
+        assert!(rl.unlock_instance(&rl.servers[0], &key, &val));
+        Ok(())
     }
 
     #[test]
-    fn test_redlock_direct_lock_succeeds() {
+    fn test_redlock_direct_lock_succeeds() -> Result<()> {
+        println!("{}", ADDRESSES.join(","));
         let rl = RedLock::new(ADDRESSES.clone());
-        let key = rl.get_unique_lock_id().unwrap();
+        let key = rl.get_unique_lock_id()?;
 
-        let val = rl.get_unique_lock_id().unwrap();
-        let mut con = rl.servers[0].get_connection().unwrap();
+        let val = rl.get_unique_lock_id()?;
+        let mut con = rl.servers[0].get_connection()?;
 
         redis::cmd("DEL").arg(&*key).execute(&mut con);
-        assert_eq!(true, rl.lock_instance(&rl.servers[0], &*key, &*val, 1000))
+        assert!(rl.lock_instance(&rl.servers[0], &*key, &*val, 1000));
+        Ok(())
     }
 
     #[test]
-    fn test_redlock_unlock() {
+    fn test_redlock_unlock() -> Result<()> {
+        println!("{}", ADDRESSES.join(","));
         let rl = RedLock::new(ADDRESSES.clone());
-        let key = rl.get_unique_lock_id().unwrap();
+        let key = rl.get_unique_lock_id()?;
 
-        let val = rl.get_unique_lock_id().unwrap();
-        let mut con = rl.servers[0].get_connection().unwrap();
+        let val = rl.get_unique_lock_id()?;
+        let mut con = rl.servers[0].get_connection()?;
         let _: () = redis::cmd("SET")
             .arg(&*key)
             .arg(&*val)
@@ -299,14 +297,16 @@ mod tests {
             val,
             validity_time: 0,
         };
-        assert_eq!((), rl.unlock(&lock))
+        rl.unlock(&lock);
+        Ok(())
     }
 
     #[test]
-    fn test_redlock_lock() {
+    fn test_redlock_lock() -> Result<()> {
+        println!("{}", ADDRESSES.join(","));
         let rl = RedLock::new(ADDRESSES.clone());
 
-        let key = rl.get_unique_lock_id().unwrap();
+        let key = rl.get_unique_lock_id()?;
         match rl.lock(&key, 1000) {
             Some(lock) => {
                 assert_eq!(key, lock.resource);
@@ -320,14 +320,16 @@ mod tests {
             }
             None => panic!("Lock failed"),
         }
+        Ok(())
     }
 
     #[test]
-    fn test_redlock_lock_unlock() {
+    fn test_redlock_lock_unlock() -> Result<()> {
+        println!("{}", ADDRESSES.join(","));
         let rl = RedLock::new(ADDRESSES.clone());
         let rl2 = RedLock::new(ADDRESSES.clone());
 
-        let key = rl.get_unique_lock_id().unwrap();
+        let key = rl.get_unique_lock_id()?;
 
         let lock = rl.lock(&key, 1000).unwrap();
         assert!(
@@ -336,9 +338,8 @@ mod tests {
             lock.validity_time
         );
 
-        match rl2.lock(&key, 1000) {
-            Some(_l) => panic!("Lock acquired, even though it should be locked"),
-            None => (),
+        if let Some(_l) = rl2.lock(&key, 1000) {
+            panic!("Lock acquired, even though it should be locked")
         }
 
         rl.unlock(&lock);
@@ -347,5 +348,6 @@ mod tests {
             Some(l) => assert!(l.validity_time > 900),
             None => panic!("Lock couldn't be acquired"),
         }
+        Ok(())
     }
 }

@@ -9,6 +9,19 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      redis0:
+        image: redis
+        ports:
+          - 6377:6379
+      redis1:
+        image: redis
+        ports:
+          - 6378:6379
+      redis2:
+        image: redis
+        ports:
+          - 6379:6379
     steps:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
@@ -20,7 +33,7 @@ jobs:
         with:
           credentials: ${{ secrets.GITHUB_TOKEN }}
       - name: Run tests
-        run: cargo test
+        run: ADDRESSES="redis://localhost:6377,redis://localhost:6378,redis://localhost:6379" cargo test
   format:
     runs-on: ubuntu-latest
     steps:
