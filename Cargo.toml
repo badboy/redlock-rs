@@ -17,3 +17,7 @@ edition = "2018"
 [dependencies]
 redis = "0.20.0"
 rand = "0.8.3"
+
+[dev-dependencies]
+testcontainers = { git = "ssh://git@github.com/testcontainers/testcontainers-rs" }
+once_cell = "1.7.2"
