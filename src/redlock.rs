@@ -20,6 +20,7 @@ const UNLOCK_SCRIPT: &str = r"if redis.call('get',KEYS[1]) == ARGV[1] then
 ///
 /// Implements the necessary functionality to acquire and release locks
 /// and handles the Redis connections.
+#[derive(Debug, Clone)]
 pub struct RedLock {
     /// List of all Redis clients
     pub servers: Vec<Client>,
