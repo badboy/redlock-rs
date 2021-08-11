@@ -226,9 +226,9 @@ mod tests {
     use anyhow::Result;
     use once_cell::sync::Lazy;
     use once_cell::unsync::Lazy as UnsyncLazy;
-    // use testcontainers::clients::Cli;
-    // use testcontainers::images::redis::Redis;
-    // use testcontainers::Container;
+    use testcontainers::clients::Cli;
+    use testcontainers::images::redis::Redis;
+    use testcontainers::Container;
 
     use super::*;
 
@@ -251,7 +251,7 @@ mod tests {
                 .collect()
         }),
     });
-    
+
     #[test]
     fn test_redlock_get_unique_id() -> Result<()> {
         let rl = RedLock::new(Vec::<String>::new());
