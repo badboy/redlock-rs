@@ -40,6 +40,16 @@ pub struct Lock<'a> {
     pub lock_manager: &'a RedLock,
 }
 
+pub struct RedLockGuard<'a> {
+    pub lock: Lock<'a>,
+}
+
+impl Drop for RedLockGuard<'_> {
+    fn drop(&mut self) {
+        self.lock.lock_manager.unlock(&self.lock);
+    }
+}
+
 impl RedLock {
     /// Create a new lock manager instance, defined by the given Redis connection uris.
     /// Quorum is defined to be N/2+1, with N being the number of given Redis instances.
@@ -155,6 +165,38 @@ impl RedLock {
         None
     }
 
+    /// Acquire the lock for the given resource and the requested TTL. \
+    /// Will wait and yield current task (tokio runtime) until the lock \
+    /// is acquired
+    ///
+    /// Returns a `RedLockGuard` instance which is a RAII wrapper for \
+    /// the old `Lock` object
+    pub async fn acquire_async(&self, resource: &[u8], ttl: usize) -> RedLockGuard<'_> {
+        let lock;
+        loop {
+            match self.lock(resource, ttl) {
+                Some(l) => { lock = l; break; }
+                None => { tokio::task::yield_now().await }
+            }
+        }
+        RedLockGuard {
+            lock: lock
+        }
+    }
+
+    pub fn acquire(&self, resource: &[u8], ttl: usize) -> RedLockGuard<'_> {
+        let lock;
+        loop {
+            match self.lock(resource, ttl) {
+                Some(l) => { lock = l; break; }
+                None => {  }
+            }
+        }
+        RedLockGuard {
+            lock: lock
+        }
+    }
+
     fn unlock_instance(&self, client: &redis::Client, resource: &[u8], val: &[u8]) -> bool {
         let mut con = match client.get_connection() {
             Err(_) => return false,
@@ -184,9 +226,9 @@ mod tests {
     use anyhow::Result;
     use once_cell::sync::Lazy;
     use once_cell::unsync::Lazy as UnsyncLazy;
-    use testcontainers::clients::Cli;
-    use testcontainers::images::redis::Redis;
-    use testcontainers::Container;
+    // use testcontainers::clients::Cli;
+    // use testcontainers::images::redis::Redis;
+    // use testcontainers::Container;
 
     use super::*;
 
@@ -209,7 +251,7 @@ mod tests {
                 .collect()
         }),
     });
-
+    
     #[test]
     fn test_redlock_get_unique_id() -> Result<()> {
         let rl = RedLock::new(Vec::<String>::new());
@@ -343,6 +385,34 @@ mod tests {
         }
 
         rl.unlock(&lock);
+
+        match rl2.lock(&key, 1000) {
+            Some(l) => assert!(l.validity_time > 900),
+            None => panic!("Lock couldn't be acquired"),
+        }
+        Ok(())
+    }
+
+	#[test]
+    fn test_redlock_lock_unlock_raii() -> Result<()> {
+        println!("{}", ADDRESSES.join(","));
+        let rl = RedLock::new(ADDRESSES.clone());
+        let rl2 = RedLock::new(ADDRESSES.clone());
+
+        let key = rl.get_unique_lock_id()?;
+		{
+			let lock_guard = rl.acquire(&key, 1000);
+			let lock = &lock_guard.lock;
+			assert!(
+				lock.validity_time > 900,
+				"validity time: {}",
+				lock.validity_time
+			);
+
+			if let Some(_l) = rl2.lock(&key, 1000) {
+				panic!("Lock acquired, even though it should be locked")
+			}
+		}
 
         match rl2.lock(&key, 1000) {
             Some(l) => assert!(l.validity_time > 900),
