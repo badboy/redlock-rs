@@ -16,7 +16,6 @@ jobs:
         with:
           # Fetches entire history, so we can analyze commits since last tag
           fetch-depth: 0
-      - uses: Swatinem/rust-cache@v1
       - uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: stable
@@ -24,6 +23,7 @@ jobs:
       - uses: fusion-engineering/setup-git-credentials@v2
         with:
           credentials: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v1
       - name: Install cargo-release
         run: cargo install cargo-release
       - name: Release
