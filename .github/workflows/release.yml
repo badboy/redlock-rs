@@ -7,6 +7,13 @@ on:
         description: 'Release level or valid semver'
         required: true
         default: 'release'
+      execute:
+        description: 'Whether to actually execute release'
+        required: true
+        default: 'false'
+      token:
+        description: 'Crates.io token'
+        required: false
 
 jobs:
   release:
@@ -26,5 +33,9 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Install cargo-release
         run: cargo install cargo-release
+      - name: Release Dry Run
+        if: ${{ github.event.inputs.execute  == 'true' }}
+        run: cargo release -v -x --no-confirm --token ${{ github.event.inputs.token }} ${{ github.event.inputs.release }}
       - name: Release
-        run: cargo release -v --dry-run --no-confirm --token ${{ secrets.CRATES_IO_TOKEN }} ${{ github.event.inputs.release }}
+        if: ${{ github.event.inputs.execute  != 'true' }}
+        run: cargo release -v ${{ github.event.inputs.release }}
