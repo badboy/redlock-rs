@@ -33,6 +33,10 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Install cargo-release
         run: cargo install cargo-release
+      - name: Setup git config
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "<>"
       - name: Release
         if: ${{ github.event.inputs.execute  == 'true' }}
         run: cargo release -v -x --no-confirm --token ${{ github.event.inputs.token }} ${{ github.event.inputs.release }}
