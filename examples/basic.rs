@@ -46,7 +46,7 @@ pub fn main() {
             for _ in 0..number_of_incrs {
                 let lock;
                 loop {
-                    if let Some(l) = rl.lock(resource.as_bytes(), 1000) {
+                    if let Some(l) = rl.lock(resource.as_bytes(), 1000).unwrap() {
                         lock = l;
                         break;
                     }

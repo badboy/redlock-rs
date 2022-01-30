@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use rand::{thread_rng, Rng};
 use redis::Value::Okay;
-use redis::{Client, IntoConnectionInfo, RedisResult, Value};
+use redis::{Client, IntoConnectionInfo, RedisError, RedisResult, Value};
 
 const DEFAULT_RETRY_COUNT: u32 = 3;
 const DEFAULT_RETRY_DELAY: u32 = 200;
@@ -111,22 +111,19 @@ impl RedLock {
         resource: &[u8],
         val: &[u8],
         ttl: usize,
-    ) -> bool {
-        let mut con = match client.get_connection() {
-            Err(_) => return false,
-            Ok(val) => val,
-        };
-        let result: RedisResult<Value> = redis::cmd("SET")
-            .arg(resource)
-            .arg(val)
-            .arg("nx")
-            .arg("px")
-            .arg(ttl)
-            .query(&mut con);
-        match result {
-            Ok(Okay) => true,
-            Ok(_) | Err(_) => false,
-        }
+    ) -> Result<bool, RedisError> {
+        client
+            .get_connection()
+            .and_then(|mut conn| {
+                redis::cmd("SET")
+                    .arg(resource)
+                    .arg(val)
+                    .arg("nx")
+                    .arg("px")
+                    .arg(ttl)
+                    .query::<Value>(&mut conn)
+            })
+            .map(|result| matches!(result, Okay))
     }
 
     /// Acquire the lock for the given resource and the requested TTL.
@@ -134,9 +131,9 @@ impl RedLock {
     /// If it succeeds, a `Lock` instance is returned,
     /// including the value and the validity time
     ///
-    /// If it fails. `None` is returned.
-    /// A user should retry after a short wait time.
-    pub fn lock(&self, resource: &[u8], ttl: usize) -> Option<Lock> {
+    /// `Err(RedisError)` is returned on any Redis error, `None` is returned if the lock could
+    /// not be acquired and the user should retry
+    pub fn lock(&self, resource: &[u8], ttl: usize) -> Result<Option<Lock>, RedisError> {
         let val = self.get_unique_lock_id().unwrap();
 
         let mut rng = thread_rng();
@@ -145,7 +142,7 @@ impl RedLock {
             let mut n = 0;
             let start_time = Instant::now();
             for client in &self.servers {
-                if self.lock_instance(client, resource, &val, ttl) {
+                if self.lock_instance(client, resource, &val, ttl)? {
                     n += 1;
                 }
             }
@@ -158,12 +155,12 @@ impl RedLock {
                 - elapsed.subsec_nanos() as usize / 1_000_000;
 
             if n >= self.quorum && validity_time > 0 {
-                return Some(Lock {
+                return Ok(Some(Lock {
                     lock_manager: self,
                     resource: resource.to_vec(),
                     val,
                     validity_time,
-                });
+                }));
             } else {
                 for client in &self.servers {
                     self.unlock_instance(client, resource, &val);
@@ -173,7 +170,7 @@ impl RedLock {
             let n = rng.gen_range(0..self.retry_delay);
             sleep(Duration::from_millis(u64::from(n)));
         }
-        None
+        Ok(None)
     }
 
     /// Acquire the lock for the given resource and the requested TTL. \
@@ -183,10 +180,14 @@ impl RedLock {
     /// Returns a `RedLockGuard` instance which is a RAII wrapper for \
     /// the old `Lock` object
     #[cfg(feature = "async")]
-    pub async fn acquire_async(&self, resource: &[u8], ttl: usize) -> RedLockGuard<'_> {
+    pub async fn acquire_async(
+        &self,
+        resource: &[u8],
+        ttl: usize,
+    ) -> Result<RedLockGuard<'_>, RedisError> {
         let lock;
         loop {
-            match self.lock(resource, ttl) {
+            match self.lock(resource, ttl)? {
                 Some(l) => {
                     lock = l;
                     break;
@@ -194,18 +195,18 @@ impl RedLock {
                 None => tokio::task::yield_now().await,
             }
         }
-        RedLockGuard { lock }
+        Ok(RedLockGuard { lock })
     }
 
-    pub fn acquire(&self, resource: &[u8], ttl: usize) -> RedLockGuard<'_> {
+    pub fn acquire(&self, resource: &[u8], ttl: usize) -> Result<RedLockGuard<'_>, RedisError> {
         let lock;
         loop {
-            if let Some(l) = self.lock(resource, ttl) {
+            if let Some(l) = self.lock(resource, ttl)? {
                 lock = l;
                 break;
             }
         }
-        RedLockGuard { lock }
+        Ok(RedLockGuard { lock })
     }
 
     fn unlock_instance(&self, client: &redis::Client, resource: &[u8], val: &[u8]) -> bool {
@@ -319,7 +320,7 @@ mod tests {
         let mut con = rl.servers[0].get_connection()?;
 
         redis::cmd("DEL").arg(&*key).execute(&mut con);
-        assert!(rl.lock_instance(&rl.servers[0], &*key, &*val, 1000));
+        assert!(rl.lock_instance(&rl.servers[0], &*key, &*val, 1000)?);
         Ok(())
     }
 
@@ -353,7 +354,7 @@ mod tests {
         let rl = RedLock::new(ADDRESSES.clone());
 
         let key = rl.get_unique_lock_id()?;
-        match rl.lock(&key, 1000) {
+        match rl.lock(&key, 1000)? {
             Some(lock) => {
                 assert_eq!(key, lock.resource);
                 assert_eq!(20, lock.val.len());
@@ -377,20 +378,20 @@ mod tests {
 
         let key = rl.get_unique_lock_id()?;
 
-        let lock = rl.lock(&key, 1000).unwrap();
+        let lock = rl.lock(&key, 1000)?.unwrap();
         assert!(
             lock.validity_time > 900,
             "validity time: {}",
             lock.validity_time
         );
 
-        if let Some(_l) = rl2.lock(&key, 1000) {
+        if let Some(_l) = rl2.lock(&key, 1000)? {
             panic!("Lock acquired, even though it should be locked")
         }
 
         rl.unlock(&lock);
 
-        match rl2.lock(&key, 1000) {
+        match rl2.lock(&key, 1000)? {
             Some(l) => assert!(l.validity_time > 900),
             None => panic!("Lock couldn't be acquired"),
         }
@@ -405,7 +406,7 @@ mod tests {
 
         let key = rl.get_unique_lock_id()?;
         {
-            let lock_guard = rl.acquire(&key, 1000);
+            let lock_guard = rl.acquire(&key, 1000)?;
             let lock = &lock_guard.lock;
             assert!(
                 lock.validity_time > 900,
@@ -413,14 +414,25 @@ mod tests {
                 lock.validity_time
             );
 
-            if let Some(_l) = rl2.lock(&key, 1000) {
+            if let Some(_l) = rl2.lock(&key, 1000)? {
                 panic!("Lock acquired, even though it should be locked")
             }
         }
 
-        match rl2.lock(&key, 1000) {
+        match rl2.lock(&key, 1000)? {
             Some(l) => assert!(l.validity_time > 900),
             None => panic!("Lock couldn't be acquired"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_redlock_lock_error() -> Result<()> {
+        let rl = RedLock::new(vec!["redis://nonexistent"]);
+        let key = rl.get_unique_lock_id()?;
+        match rl.lock(&key, 1000) {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => assert!(e.is_io_error()),
         }
         Ok(())
     }

@@ -14,8 +14,9 @@
 //! let lock;
 //! loop {
 //!   match rl.lock("mutex".as_bytes(), 1000) {
-//!     Some(l) => { lock = l; break }
-//!     None => ()
+//!     Ok(Some(l)) => { lock = l; break },
+//!     Ok(None) => (),
+//!     Err(e) => panic!("Error communicating with redis: {}", e)
 //!   }
 //! }
 //!
