@@ -26,4 +26,4 @@
 
 mod redlock;
 
-pub use crate::redlock::{Lock, RedLock};
+pub use crate::redlock::{Lock, RedLock, RedLockGuard};
