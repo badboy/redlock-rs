@@ -65,6 +65,10 @@ impl RedLock {
         Self::with_clients(servers)
     }
 
+    pub fn with_client(server: Client) -> RedLock {
+        Self::with_clients(vec![server])
+    }
+
     /// Create a new lock manager instance, defined by the given Redis client instance.
     /// Quorum is defined to be N/2+1, with N being the number of given client instances.
     pub fn with_clients(servers: Vec<Client>) -> RedLock {
