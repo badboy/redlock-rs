@@ -57,19 +57,12 @@ impl RedLock {
     ///
     /// Sample URI: `"redis://127.0.0.1:6379"`
     pub fn new<T: AsRef<str> + IntoConnectionInfo>(uris: Vec<T>) -> RedLock {
-        let quorum = (uris.len() as u32) / 2 + 1;
-
         let servers: Vec<Client> = uris
             .into_iter()
             .map(|uri| Client::open(uri).unwrap())
             .collect();
 
-        RedLock {
-            servers,
-            quorum,
-            retry_count: DEFAULT_RETRY_COUNT,
-            retry_delay: DEFAULT_RETRY_DELAY,
-        }
+        Self::with_clients(servers)
     }
 
     /// Create a new lock manager instance, defined by the given Redis client instance.
