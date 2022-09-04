@@ -52,13 +52,16 @@ impl Drop for RedLockGuard<'_> {
 }
 
 fn get_validity_time(ttl: usize, drift: usize, elapsed: Duration) -> usize {
-    ttl
-        - drift
-        - elapsed.as_secs() as usize * 1000
-        - elapsed.subsec_nanos() as usize / 1_000_000
+    let validity_time = ttl as i64
+        - drift as i64
+        - elapsed.as_secs() as i64 * 1000
+        - elapsed.subsec_nanos() as i64 / 1_000_000;
+
+    if validity_time < 0 {
+        return 0_usize;
+    }
+    validity_time as usize
 }
-
-
 
 
 impl RedLock {
@@ -426,6 +429,4 @@ mod tests {
     fn test_validity_time_overflow() {
         get_validity_time(1, 15, Duration::from_millis(15));
     }
-
-
 }
