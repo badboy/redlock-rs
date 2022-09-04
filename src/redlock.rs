@@ -63,7 +63,6 @@ fn get_validity_time(ttl: usize, drift: usize, elapsed: Duration) -> usize {
     validity_time as usize
 }
 
-
 impl RedLock {
     /// Create a new lock manager instance, defined by the given Redis connection uris.
     /// Quorum is defined to be N/2+1, with N being the number of given Redis instances.
