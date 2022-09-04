@@ -51,6 +51,16 @@ impl Drop for RedLockGuard<'_> {
     }
 }
 
+fn get_validity_time(ttl: usize, drift: usize, elapsed: Duration) -> usize {
+    ttl
+        - drift
+        - elapsed.as_secs() as usize * 1000
+        - elapsed.subsec_nanos() as usize / 1_000_000
+}
+
+
+
+
 impl RedLock {
     /// Create a new lock manager instance, defined by the given Redis connection uris.
     /// Quorum is defined to be N/2+1, with N being the number of given Redis instances.
@@ -142,10 +152,7 @@ impl RedLock {
 
             let drift = (ttl as f32 * CLOCK_DRIFT_FACTOR) as usize + 2;
             let elapsed = start_time.elapsed();
-            let validity_time = ttl
-                - drift
-                - elapsed.as_secs() as usize * 1000
-                - elapsed.subsec_nanos() as usize / 1_000_000;
+            let validity_time = get_validity_time(ttl, drift, elapsed);
 
             if n >= self.quorum && validity_time > 0 {
                 return Some(Lock {
@@ -414,4 +421,11 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn test_validity_time_overflow() {
+        get_validity_time(1, 15, Duration::from_millis(15));
+    }
+
+
 }
