@@ -30,7 +30,7 @@ jobs:
       - uses: fusion-engineering/setup-git-credentials@v2
         with:
           credentials: ${{ secrets.GITHUB_TOKEN }}
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Install cargo-release
         run: cargo install cargo-release
       - name: Setup git config
