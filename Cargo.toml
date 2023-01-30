@@ -15,7 +15,7 @@ readme = "README.md"
 edition = "2021"
 
 [dependencies]
-redis = "0.21.0"
+redis = "0.22.3"
 rand = "^0.8"
 tokio = { version = "^1.15", features = ["rt"], optional = true }
 
