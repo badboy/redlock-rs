@@ -88,7 +88,7 @@ impl RedLock {
         let mut buf = Vec::with_capacity(20);
         match file.take(20).read_to_end(&mut buf) {
             Ok(20) => Ok(buf),
-            Ok(_) => Err(io::Error::new(
+            Ok(_containers) => Err(io::Error::new(
                 io::ErrorKind::Other,
                 "Can't read enough random bytes",
             )),
@@ -211,14 +211,14 @@ impl RedLock {
 
     fn unlock_instance(&self, client: &redis::Client, resource: &[u8], val: &[u8]) -> bool {
         let mut con = match client.get_connection() {
-            Err(_) => return false,
+            Err(_containers) => return false,
             Ok(val) => val,
         };
         let script = redis::Script::new(UNLOCK_SCRIPT);
         let result: RedisResult<i32> = script.key(resource).arg(val).invoke(&mut con);
         match result {
             Ok(val) => val == 1,
-            Err(_) => false,
+            Err(_containers) => false,
         }
     }
 
@@ -236,26 +236,32 @@ impl RedLock {
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use once_cell::sync::Lazy;
     use testcontainers::clients::Cli;
-    use testcontainers::images::redis::Redis;
-    use testcontainers::{Container, Docker};
+    use testcontainers::images::generic::GenericImage;
+    use testcontainers::Container;
 
     use super::*;
 
-    static DOCKER: Lazy<Cli> = Lazy::new(Cli::default);
-    static CONTAINERS: Lazy<Vec<Container<Cli, Redis>>> = Lazy::new(|| {
+    fn init(docker: &Cli) -> (Option<Vec<Container<GenericImage>>>, Vec<String>) {
+        match std::env::var("ADDRESSES") {
+            Ok(addresses) => (None, addresses.split(',').map(String::from).collect()),
+            _ => {
+                let (containers, addresses) = start_container(docker);
+                (Some(containers), addresses)
+            }
+        }
+    }
+
+    fn start_container(docker: &Cli) -> (Vec<Container<GenericImage>>, Vec<String>) {
         (0..3)
-            .map(|_| DOCKER.run(Redis::default().with_tag("6-alpine")))
-            .collect()
-    });
-    static ADDRESSES: Lazy<Vec<String>> = Lazy::new(|| match std::env::var("ADDRESSES") {
-        Ok(addresses) => addresses.split(',').map(String::from).collect(),
-        Err(_) => CONTAINERS
-            .iter()
-            .map(|c| format!("redis://localhost:{}", c.get_host_port(6379).unwrap()))
-            .collect(),
-    });
+            .map(|_| {
+                let container =
+                    docker.run(GenericImage::new("redis", "7-alpine").with_exposed_port(6379));
+                let address = format!("redis://localhost:{}", container.get_host_port_ipv4(6379));
+                (container, address)
+            })
+            .unzip()
+    }
 
     #[test]
     fn test_redlock_get_unique_id() -> Result<()> {
@@ -279,16 +285,18 @@ mod tests {
 
     #[test]
     fn test_redlock_valid_instance() {
-        println!("{}", ADDRESSES.join(","));
-        let rl = RedLock::new(ADDRESSES.clone());
+        let docker = Cli::default();
+        let (_containers, addresses) = init(&docker);
+        let rl = RedLock::new(addresses);
         assert_eq!(3, rl.servers.len());
         assert_eq!(2, rl.quorum);
     }
 
     #[test]
     fn test_redlock_direct_unlock_fails() -> Result<()> {
-        println!("{}", ADDRESSES.join(","));
-        let rl = RedLock::new(ADDRESSES.clone());
+        let docker = Cli::default();
+        let (_containers, addresses) = init(&docker);
+        let rl = RedLock::new(addresses);
         let key = rl.get_unique_lock_id()?;
 
         let val = rl.get_unique_lock_id()?;
@@ -298,13 +306,14 @@ mod tests {
 
     #[test]
     fn test_redlock_direct_unlock_succeeds() -> Result<()> {
-        println!("{}", ADDRESSES.join(","));
-        let rl = RedLock::new(ADDRESSES.clone());
+        let docker = Cli::default();
+        let (_containers, addresses) = init(&docker);
+        let rl = RedLock::new(addresses);
         let key = rl.get_unique_lock_id()?;
 
         let val = rl.get_unique_lock_id()?;
         let mut con = rl.servers[0].get_connection()?;
-        redis::cmd("SET").arg(&*key).arg(&*val).execute(&mut con);
+        redis::cmd("SET").arg(&key).arg(&val).execute(&mut con);
 
         assert!(rl.unlock_instance(&rl.servers[0], &key, &val));
         Ok(())
@@ -312,29 +321,31 @@ mod tests {
 
     #[test]
     fn test_redlock_direct_lock_succeeds() -> Result<()> {
-        println!("{}", ADDRESSES.join(","));
-        let rl = RedLock::new(ADDRESSES.clone());
+        let docker = Cli::default();
+        let (_containerscontainers, addresses) = init(&docker);
+        let rl = RedLock::new(addresses);
         let key = rl.get_unique_lock_id()?;
 
         let val = rl.get_unique_lock_id()?;
         let mut con = rl.servers[0].get_connection()?;
 
-        redis::cmd("DEL").arg(&*key).execute(&mut con);
-        assert!(rl.lock_instance(&rl.servers[0], &*key, &*val, 1000)?);
+        redis::cmd("DEL").arg(&key).execute(&mut con);
+        assert!(rl.lock_instance(&rl.servers[0], &key, &val, 1000)?);
         Ok(())
     }
 
     #[test]
     fn test_redlock_unlock() -> Result<()> {
-        println!("{}", ADDRESSES.join(","));
-        let rl = RedLock::new(ADDRESSES.clone());
+        let docker = Cli::default();
+        let (_containers, addresses) = init(&docker);
+        let rl = RedLock::new(addresses);
         let key = rl.get_unique_lock_id()?;
 
         let val = rl.get_unique_lock_id()?;
         let mut con = rl.servers[0].get_connection()?;
         let _: () = redis::cmd("SET")
-            .arg(&*key)
-            .arg(&*val)
+            .arg(&key)
+            .arg(&val)
             .query(&mut con)
             .unwrap();
 
@@ -350,8 +361,9 @@ mod tests {
 
     #[test]
     fn test_redlock_lock() -> Result<()> {
-        println!("{}", ADDRESSES.join(","));
-        let rl = RedLock::new(ADDRESSES.clone());
+        let docker = Cli::default();
+        let (_containers, addresses) = init(&docker);
+        let rl = RedLock::new(addresses);
 
         let key = rl.get_unique_lock_id()?;
         match rl.lock(&key, 1000)? {
@@ -372,9 +384,10 @@ mod tests {
 
     #[test]
     fn test_redlock_lock_unlock() -> Result<()> {
-        println!("{}", ADDRESSES.join(","));
-        let rl = RedLock::new(ADDRESSES.clone());
-        let rl2 = RedLock::new(ADDRESSES.clone());
+        let docker = Cli::default();
+        let (_containers, addresses) = init(&docker);
+        let rl = RedLock::new(addresses.to_owned());
+        let rl2 = RedLock::new(addresses);
 
         let key = rl.get_unique_lock_id()?;
 
@@ -385,7 +398,7 @@ mod tests {
             lock.validity_time
         );
 
-        if let Some(_l) = rl2.lock(&key, 1000)? {
+        if let Some(_containersl) = rl2.lock(&key, 1000)? {
             panic!("Lock acquired, even though it should be locked")
         }
 
@@ -400,9 +413,10 @@ mod tests {
 
     #[test]
     fn test_redlock_lock_unlock_raii() -> Result<()> {
-        println!("{}", ADDRESSES.join(","));
-        let rl = RedLock::new(ADDRESSES.clone());
-        let rl2 = RedLock::new(ADDRESSES.clone());
+        let docker = Cli::default();
+        let (_containers, addresses) = init(&docker);
+        let rl = RedLock::new(addresses.to_owned());
+        let rl2 = RedLock::new(addresses);
 
         let key = rl.get_unique_lock_id()?;
         {
@@ -414,7 +428,7 @@ mod tests {
                 lock.validity_time
             );
 
-            if let Some(_l) = rl2.lock(&key, 1000)? {
+            if let Some(_containersl) = rl2.lock(&key, 1000)? {
                 panic!("Lock acquired, even though it should be locked")
             }
         }
@@ -431,7 +445,7 @@ mod tests {
         let rl = RedLock::new(vec!["redis://nonexistent"]);
         let key = rl.get_unique_lock_id()?;
         match rl.lock(&key, 1000) {
-            Ok(_) => panic!("Expected error"),
+            Ok(_containers) => panic!("Expected error"),
             Err(e) => assert!(e.is_io_error()),
         }
         Ok(())
