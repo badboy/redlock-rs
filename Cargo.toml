@@ -22,7 +22,6 @@ tokio = { version = "1.27.0", features = ["rt"], optional = true }
 [features]
 default = []
 async = ["tokio"]
-tls = ["redis/tls"]
 
 [dev-dependencies]
 testcontainers = "0.14.0"
