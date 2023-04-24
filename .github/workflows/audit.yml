@@ -14,5 +14,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: actions-rust-lang/audit@v1
         name: Audit Rust Dependencies
+        with:
+           # this is the chrono/time vuln we are unaffected by
+           ignore: RUSTSEC-2020-0071
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
