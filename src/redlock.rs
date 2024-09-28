@@ -236,31 +236,32 @@ impl RedLock {
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use testcontainers::clients::Cli;
-    use testcontainers::images::generic::GenericImage;
-    use testcontainers::Container;
-
+    use testcontainers::{ContainerAsync, GenericImage};
+    use testcontainers::core::IntoContainerPort;
+    use testcontainers::runners::AsyncRunner;
     use super::*;
 
-    fn init(docker: &Cli) -> (Option<Vec<Container<GenericImage>>>, Vec<String>) {
+    async fn init() -> Result<(Option<Vec<ContainerAsync<GenericImage>>>, Vec<String>)> {
         match std::env::var("ADDRESSES") {
-            Ok(addresses) => (None, addresses.split(',').map(String::from).collect()),
+            Ok(addresses) => Ok((None, addresses.split(',').map(String::from).collect())),
             _ => {
-                let (containers, addresses) = start_container(docker);
-                (Some(containers), addresses)
+                let (containers, addresses) = start_containers().await?;
+                Ok((Some(containers), addresses))
             }
         }
     }
 
-    fn start_container(docker: &Cli) -> (Vec<Container<GenericImage>>, Vec<String>) {
-        (0..3)
-            .map(|_| {
-                let container =
-                    docker.run(GenericImage::new("redis", "7-alpine").with_exposed_port(6379));
-                let address = format!("redis://localhost:{}", container.get_host_port_ipv4(6379));
-                (container, address)
-            })
-            .unzip()
+    async fn start_containers() -> Result<(Vec<ContainerAsync<GenericImage>>, Vec<String>)> {
+        let mut containers = Vec::new();
+        let mut addresses = Vec::new();
+        for _ in 0..3 {
+            let container =
+                GenericImage::new("redis", "7-alpine").with_exposed_port(6379.tcp()).start().await?;
+            let address = format!("redis://localhost:{}", container.get_host_port_ipv4(6379).await?);
+            containers.push(container);
+            addresses.push(address);
+        }
+        Ok((containers, addresses))
     }
 
     #[test]
@@ -283,19 +284,18 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_redlock_valid_instance() {
-        let docker = Cli::default();
-        let (_containers, addresses) = init(&docker);
+    #[tokio::test]
+    async fn test_redlock_valid_instance() -> Result<()> {
+        let (_containers, addresses) = init().await?;
         let rl = RedLock::new(addresses);
         assert_eq!(3, rl.servers.len());
         assert_eq!(2, rl.quorum);
+        Ok(())
     }
 
-    #[test]
-    fn test_redlock_direct_unlock_fails() -> Result<()> {
-        let docker = Cli::default();
-        let (_containers, addresses) = init(&docker);
+    #[tokio::test]
+    async fn test_redlock_direct_unlock_fails() -> Result<()> {
+        let (_containers, addresses) = init().await?;
         let rl = RedLock::new(addresses);
         let key = rl.get_unique_lock_id()?;
 
@@ -304,40 +304,37 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_redlock_direct_unlock_succeeds() -> Result<()> {
-        let docker = Cli::default();
-        let (_containers, addresses) = init(&docker);
+    #[tokio::test]
+    async fn test_redlock_direct_unlock_succeeds() -> Result<()> {
+        let (_containers, addresses) = init().await?;
         let rl = RedLock::new(addresses);
         let key = rl.get_unique_lock_id()?;
 
         let val = rl.get_unique_lock_id()?;
         let mut con = rl.servers[0].get_connection()?;
-        redis::cmd("SET").arg(&key).arg(&val).execute(&mut con);
+        redis::cmd("SET").arg(&key).arg(&val).exec(&mut con)?;
 
         assert!(rl.unlock_instance(&rl.servers[0], &key, &val));
         Ok(())
     }
 
-    #[test]
-    fn test_redlock_direct_lock_succeeds() -> Result<()> {
-        let docker = Cli::default();
-        let (_containerscontainers, addresses) = init(&docker);
+    #[tokio::test]
+    async fn test_redlock_direct_lock_succeeds() -> Result<()> {
+        let (_containerscontainers, addresses) = init().await?;
         let rl = RedLock::new(addresses);
         let key = rl.get_unique_lock_id()?;
 
         let val = rl.get_unique_lock_id()?;
         let mut con = rl.servers[0].get_connection()?;
 
-        redis::cmd("DEL").arg(&key).execute(&mut con);
+        redis::cmd("DEL").arg(&key).exec(&mut con)?;
         assert!(rl.lock_instance(&rl.servers[0], &key, &val, 1000)?);
         Ok(())
     }
 
-    #[test]
-    fn test_redlock_unlock() -> Result<()> {
-        let docker = Cli::default();
-        let (_containers, addresses) = init(&docker);
+    #[tokio::test]
+    async fn test_redlock_unlock() -> Result<()> {
+        let (_containers, addresses) = init().await?;
         let rl = RedLock::new(addresses);
         let key = rl.get_unique_lock_id()?;
 
@@ -359,10 +356,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_redlock_lock() -> Result<()> {
-        let docker = Cli::default();
-        let (_containers, addresses) = init(&docker);
+    #[tokio::test]
+    async fn test_redlock_lock() -> Result<()> {
+        let (_containers, addresses) = init().await?;
         let rl = RedLock::new(addresses);
 
         let key = rl.get_unique_lock_id()?;
@@ -382,10 +378,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_redlock_lock_unlock() -> Result<()> {
-        let docker = Cli::default();
-        let (_containers, addresses) = init(&docker);
+    #[tokio::test]
+    async fn test_redlock_lock_unlock() -> Result<()> {
+        let (_containers, addresses) = init().await?;
         let rl = RedLock::new(addresses.to_owned());
         let rl2 = RedLock::new(addresses);
 
@@ -411,10 +406,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_redlock_lock_unlock_raii() -> Result<()> {
-        let docker = Cli::default();
-        let (_containers, addresses) = init(&docker);
+    #[tokio::test]
+    async fn test_redlock_lock_unlock_raii() -> Result<()> {
+        let (_containers, addresses) = init().await?;
         let rl = RedLock::new(addresses.to_owned());
         let rl2 = RedLock::new(addresses);
 

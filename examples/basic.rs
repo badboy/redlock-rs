@@ -29,7 +29,7 @@ pub fn main() {
 
     let client = redis::Client::open("redis://127.0.0.1:6380/").unwrap();
     let mut con = client.get_connection().unwrap();
-    redis::cmd("DEL").arg(incr_key).execute(&mut con);
+    redis::cmd("DEL").arg(incr_key).exec(&mut con).unwrap();
 
     for _ in 0..number_of_workers {
         let tx = tx.clone();
@@ -59,7 +59,8 @@ pub fn main() {
                 redis::cmd("SET")
                     .arg(incr_key)
                     .arg(val + 1)
-                    .execute(&mut con);
+                    .exec(&mut con)
+                    .unwrap();
 
                 rl.unlock(&lock);
             }
