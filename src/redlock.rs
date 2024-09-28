@@ -235,11 +235,11 @@ impl RedLock {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use anyhow::Result;
-    use testcontainers::{ContainerAsync, GenericImage};
     use testcontainers::core::IntoContainerPort;
     use testcontainers::runners::AsyncRunner;
-    use super::*;
+    use testcontainers::{ContainerAsync, GenericImage};
 
     async fn init() -> Result<(Option<Vec<ContainerAsync<GenericImage>>>, Vec<String>)> {
         match std::env::var("ADDRESSES") {
@@ -255,9 +255,14 @@ mod tests {
         let mut containers = Vec::new();
         let mut addresses = Vec::new();
         for _ in 0..3 {
-            let container =
-                GenericImage::new("redis", "7-alpine").with_exposed_port(6379.tcp()).start().await?;
-            let address = format!("redis://localhost:{}", container.get_host_port_ipv4(6379).await?);
+            let container = GenericImage::new("redis", "7-alpine")
+                .with_exposed_port(6379.tcp())
+                .start()
+                .await?;
+            let address = format!(
+                "redis://localhost:{}",
+                container.get_host_port_ipv4(6379).await?
+            );
             containers.push(container);
             addresses.push(address);
         }
