@@ -2,6 +2,7 @@
 
 ![GitHub Workflow Status](https://img.shields.io/github/workflow/status/badboy/redlock-rs/CI)
 ![Crates.io](https://img.shields.io/crates/v/redlock)
+[![libs.tech recommends](https://libs.tech/project/25363636/badge.svg)](https://libs.tech/project/25363636/redlock-rs)
 
 This is an implementation of Redlock, the [distributed locking mechanism][distlock] built on top of Redis.
 It is more or less a port of the [Ruby version][redlock.rb].
